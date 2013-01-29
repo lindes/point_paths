@@ -1,16 +1,65 @@
-float center_re = -0.7;
-float center_im = 0;
-float zoom_width = 3.0; // constant "zoom"; n.b.: not related to sub-window (below)
+// point_paths - an exploration of the paths plotted in iterations
+//               of the Mandelbrot Set.
+// Copyright 2011-2013 by David Lindes.
 
-PImage img, zimg; // state image for the fractal; zoom subset, scaled
+/*
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
 
-int last_x = 0, last_y = 0; // state for avoiding re-drawing
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+// center of the screen should be at this point:
+float center_re = -0.7; // real component
+float center_im = 0; // imaginary component
+
+// "zoom" factor.  Note: not currently change-able:
+float zoom_width = 3.0; // n.b.: not related to sub-window (below)
+
+// image storage for the computed fractal (and sub-window):
+PImage img, zimg;
+
+// state for avoiding re-drawing:
+int last_x = 0, last_y = 0;
 
 // constants for zoom sub-window:
 int zoom_size = 30; // size of sub_image
 int zoom_scale = 4; // how much to scale it
-int zoom_x, zoom_y; // where to place it (set in setup()
-boolean want_sub_image = true;
+int zoom_x, zoom_y; // where to place it (set in setup())
+boolean want_sub_image = true; // should we draw it?
+
+// counters for idle loop, when enabled:
+int idle_x = 0, idle_y = 0;
+boolean fill_on_idle = false;
+
+// main initialization:
+void setup()
+{
+  switch(0)
+  {
+    case 0: size(600, 440); break;
+    case 1: size(800, 600); break;
+    default: size(900, 700); break;
+  }
+  
+  zoom_x = 80;
+  zoom_y = height - 70 - zoom_size * zoom_scale;
+  
+  background(0);
+  //frameRate(5);
+  draw_grids();
+  img = createImage(width, height, RGB);
+  img.loadPixels();
+  zimg = createImage(int(zoom_size * zoom_scale), int(zoom_size * zoom_scale), RGB);
+}
 
 // draw a grid-line at a particular position (using current color)
 void draw_grid(float r, float i, boolean is_main_gridline)
@@ -40,21 +89,6 @@ void draw_grids()
   // center axis:
   stroke(128, 128, 128, 128);
   draw_grid(0, 0);
-}
-
-void setup()
-{
-  size(900, 700);
-  
-  zoom_x = 80;
-  zoom_y = height - 70 - zoom_size * zoom_scale;
-  
-  background(0);
-  //frameRate(5);
-  draw_grids();
-  img = createImage(width, height, RGB);
-  img.loadPixels();
-  zimg = createImage(int(zoom_size * zoom_scale), int(zoom_size * zoom_scale), RGB);
 }
 
 float[] point_at(int x, int y)
@@ -172,7 +206,22 @@ void draw_sub_image()
 void draw()
 {
   if(last_x == mouseX && last_y == mouseY)
-    return; // don't waste CPU for non-movement
+    if(fill_on_idle && idle_y < height)
+    {
+      for(int i = 0; i < 440; ++i)
+      {
+        plot_next(point_at(idle_x, idle_y));
+        ++idle_x;
+        if(idle_x > width)
+        {
+          idle_x = 0;
+          idle_y++;
+          break;
+        }
+      }
+    }
+    else
+      return; // don't waste CPU for non-movement
 
   // update where we last were:
   last_x = mouseX;
@@ -231,6 +280,9 @@ void keyPressed()
     exit();
   case 'f': case ' ':
     fill_area();
+    break;
+  case 'i':
+    fill_on_idle = !fill_on_idle;
     break;
   case 'L':
     noLoop();
