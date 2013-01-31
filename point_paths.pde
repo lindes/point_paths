@@ -3,19 +3,19 @@
 // Copyright 2011-2013 by David Lindes.
 
 /*
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 // center of the screen should be at this point:
 float center_re = -0.7; // real component
@@ -29,6 +29,7 @@ PImage img, zimg;
 
 // state for avoiding re-drawing:
 int last_x = 0, last_y = 0;
+boolean redraw_required = false;
 
 // constants for zoom sub-window:
 int zoom_size = 30; // size of sub_image
@@ -43,19 +44,34 @@ boolean fill_on_idle = false;
 // main initialization:
 void setup()
 {
-  switch(0)
+  switch(1) // choice of a few screen resolutions.
   {
-    case 0: size(600, 440); break;
-    case 1: size(800, 600); break;
-    default: size(900, 700); break;
+    // n.b.: if/when adding new resolutions, note that significant aspect-ratio
+    // changes can do strange things. to what gets shown.
+  case 0:
+    size(600, 440);
+    break;
+  case 1:
+    size(800, 600);
+    break;
+  default:
+    size(900, 700);
+    break;
   }
-  
+
+  // where to place the zoom window.  TODO: make this more sane for various resolutions
   zoom_x = 80;
   zoom_y = height - 70 - zoom_size * zoom_scale;
-  
-  background(0);
+
+  background(0); // black
   //frameRate(5);
   draw_grids();
+  init_images();
+}
+
+// create (and/or re-set) the backing-store images
+void init_images()
+{
   img = createImage(width, height, RGB);
   img.loadPixels();
   zimg = createImage(int(zoom_size * zoom_scale), int(zoom_size * zoom_scale), RGB);
@@ -66,14 +82,14 @@ void draw_grid(float r, float i, boolean is_main_gridline)
 {
   int[] pos = get_position(r, i);
 
-  fill(255);
+  fill(255); // for the text
   text("r = " + r, pos[0] + 5, (is_main_gridline ? 20 : 40));
-  text("i = " + i, (is_main_gridline ? 10 : 70), pos[1] - 5);
+  text("i = " + i, (is_main_gridline ? 10 : width - 100), pos[1] - 5);
   line(pos[0], 0, pos[0], height);
   line(0, pos[1], width, pos[1]);
 }
 
-// normal version 
+// two-argument version, used for all but crosshairs:
 void draw_grid(float re, float im)
 {
   draw_grid(re, im, true);
@@ -91,6 +107,7 @@ void draw_grids()
   draw_grid(0, 0);
 }
 
+// get the complex-point for a particular set of pixel coordinates
 float[] point_at(int x, int y)
 {
   float[] point = new float[2];
@@ -113,12 +130,13 @@ int[] get_position(float[] point)
   return position;
 }
 
-int[] get_position(float r, float i)
+// two-argument version of the above:
+int[] get_position(float re, float im)
 {
   float[] position = new float[2];
 
-  position[0] = r;
-  position[1] = i;
+  position[0] = re;
+  position[1] = im;
   return get_position(position);
 }
 
@@ -128,86 +146,92 @@ float[] next_point(float[] z, float[] c)
 {
   float[] new_z = new float[2];
 
-  new_z[1] = 2.0*z[0]*z[1] + c[1]; // 2*r*i + c's i
-  new_z[0] = z[0]*z[0] - z[1]*z[1] + c[0]; // r*r - i*i + c's r
+  // (a+bi)^2 == a^2 + 2abi + (bi)^2 == a^2 + 2abi - b^2
+  new_z[1] = 2.0*z[0]*z[1] + c[1]; // z'[i] = 2*z[r]*z[i] (i.e. 2ab) + c[i]
+  new_z[0] = z[0]*z[0] - z[1]*z[1] + c[0]; // z[r]*z[r] - z[i]*z[i] (i.e. a^2 - b^2) + c[r]
 
-  return new_z;
+    return new_z;
 }
 
-// function to plot next positions:
+// main workhorse, a function to plot next positions for a given point:
 void plot_next(float[] point)
 {
-  int[] position1 = get_position(point);
-  int[] start_position = position1;
-  float[] new_point = next_point(point, point);
-  int[] position2 = get_position(new_point);
-  //println("position1 = " + position1[0] + ", " + position1[1]);
-  //println("point2 = " + new_point[0] + ", " + new_point[1]);
-  //println("position2 = " + position2[0] + ", " + position2[1]);
+  int[] position1 = get_position(point); // starting point
+  int[] start_position = position1; // save that
+  float[] new_point = next_point(point, point); // one iteration, basically
+  int[] position2 = get_position(new_point); // x,y for the new point
 
   int iterations = 0;
   color c;
 
   // main calculation loop (skipped recursion for iteration counting.  Could be re-worked.)
   do {
-    iterations++;
-    stroke(0,iterations,255-iterations);
-    line(position1[0], position1[1], position2[0], position2[1]);
-    position1 = position2;
-    new_point = next_point(new_point, point);
-    position2 = get_position(new_point);
-  } 
+    iterations++; // we already did one
+    stroke(0,iterations,255-iterations); // color for stroke... blue, going green as we go deeper
+    line(position1[0], position1[1], position2[0], position2[1]); // this segment
+    position1 = position2; // set up for next segment
+    new_point = next_point(new_point, point); // compute the new point
+    position2 = get_position(new_point); // x,y for new point
+  }
+  // as long as we haven't exceeded 255, or escaped circle of radius 2 (cheating and not squaring)
   while(iterations < 255 && (abs(new_point[0]) < 4 && abs(new_point[1]) < 4));
 
-  // heuristics for choosing a color:
+  // heuristics for choosing a color for the point to be drawn, once we have iteration count:
   if(iterations <= 10)
-  {
-    // some flavor of red:
+    // increasingly (as iterations go up) bright flavor of red:
     c = color(5 + 25 * iterations, 0, 0);
-  }
   else if(iterations <= 15)
   {
-    // some flavor of magenta:
+    // or flavor of magenta:
     int v = 100 + 10 * iterations;
     c = color(v, 0, v);
   }
+  else if(iterations < 100)
+    c = color(0, 30 + 2 * iterations, 0); // greens
   else if(iterations < 255)
-  {
-    if(iterations < 100)
-      c = color(0, 30 + 2 * iterations, 0); // greens
-    else
-      c = color(0, 0, iterations); // blues
-  }
+    c = color(0, 0, iterations); // blues
   else
-  {
     c = color(255); // white
-  }
 
+  // put this point on the map:
   img.loadPixels();
-  //println("setting " + start_position[1] + ", " + start_position[0] + " to " + red(c) + ", " + green(c) + ", " + blue(c));
-
   img.pixels[start_position[1] * width + start_position[0]] = c;
   img.updatePixels();
-
-  // println("iterations = " + iterations);
 }
 
+// draw the zoom window:
 void draw_sub_image()
 {
   if(!want_sub_image) return;
-  
+
+  int left = zoom_x - 1, top = zoom_y - 1, wdth = zoom_size * zoom_scale;
+
+  // outer box:
   stroke(255);
-  rect(zoom_x - 1, zoom_y - 1, zoom_size * zoom_scale + 1, zoom_size * zoom_scale + 1);
-  zimg.copy(img, mouseX - zoom_size/2, mouseY - zoom_size / 2, zoom_size, zoom_size,
-            0, 0, zoom_size * zoom_scale, zoom_size * zoom_scale);
+  rect(left, top, wdth + 1, wdth + 1);
+
+  // actual zoom content:
+  zimg.copy(img, mouseX - zoom_size/2, mouseY - zoom_size / 2, zoom_size, zoom_size, 0, 0, wdth, wdth);
   image(zimg, zoom_x, zoom_y);
+
+  // cross-hairs within zoom window:
+  stroke(128, 128, 128, 128);
+  line(left+zoom_scale, top+wdth/2, left+wdth+zoom_scale, top+wdth/2);
+  line(left+wdth/2, top+zoom_scale, left+wdth/2, top+wdth+zoom_scale);
 }
 
+// main draw loop, as called by the Processing framework:
 void draw()
 {
+  // if we haven't moved, do idle processing only
   if(last_x == mouseX && last_y == mouseY)
+  {
     if(fill_on_idle && idle_y < height)
     {
+      // loop stop number is somewhat arbitrary, and found by experimentation - we want to
+      // draw a big enough chunk that this draws quickly when we're truly idle, while also choosing
+      // a small enough chunk that the program will still be responsive to mouse movement even if drawing
+      // a dense area of the set.
       for(int i = 0; i < 440; ++i)
       {
         plot_next(point_at(idle_x, idle_y));
@@ -216,40 +240,46 @@ void draw()
         {
           idle_x = 0;
           idle_y++;
+          // don't bother starting the next line, just let the next loop get it
+          // (this avoids having to check bounds for idle_y):
           break;
         }
       }
     }
-    else
+    // well, unless redraw is required (e.g. for reset, zoom toggle), then re-draw anyway:
+    else if(!redraw_required)
       return; // don't waste CPU for non-movement
+  }
 
   // update where we last were:
   last_x = mouseX;
   last_y = mouseY;
 
+  // find the complex-plane point we're at:
   float[] point = point_at(mouseX, mouseY);
 
-  /*
-  println("x, y = " + mouseX + ", " + mouseY +
-   " (" + point[0] + ", " + point[1] + ")");
-   */
-
   image(img, 0, 0); // lay down the accumulated dots
-  draw_sub_image();
 
   // cross-hairs for current point:
   stroke(64, 0, 64, 255);
   draw_grid(point[0], point[1], false);
   fill(0, 0, 0, 0);
-  rect(mouseX - zoom_size/2, mouseY - zoom_size/2, zoom_size, zoom_size); // box around zoom area in main image
+  // box around zoom area in main image:
+  rect(mouseX - zoom_size/2, mouseY - zoom_size/2, zoom_size, zoom_size);
 
   // general grids:
   draw_grids();
 
   // the path at this point:
   plot_next(point);
+
+  // draw the zoom window (after plotting the point):
+  draw_sub_image();
+
+  redraw_required = false;
 }
 
+// fill a region around the mouse:
 void fill_area()
 {
   int i, j, x, y;
@@ -261,38 +291,45 @@ void fill_area()
     {
       x = mouseX + i - zoom_size/2;
       y = mouseY + j - zoom_size/2;
-      
+
       if(x < 0 || x >= width || y < 0 || y >= height)
         continue;
 
       plot_next(point_at(x, y));
     }
   }
-  
+
   draw_sub_image();
 }
 
+// keyboard controls:
 void keyPressed()
 {
   switch(key)
   {
-  case 'q': 
-    exit();
-  case 'f': case ' ':
+  case 'f': // fill a region
+  case ' ': // space-bar also, for easy access
     fill_area();
     break;
-  case 'i':
+  case 'i': // idle-mode drawing
     fill_on_idle = !fill_on_idle;
     break;
-  case 'L':
+  case 'L': // Lock looping
     noLoop();
     break;
-  case 'l':
+  case 'l': // loop again
     loop();
     break;
-  case 'z':
+  case 'r': // reset
+    init_images();
+    fill_on_idle = false;
+    redraw_required = true;
+    break;
+  case 'q': // quit
+    exit();
+  case 'z': // toggle zoom window
     want_sub_image = !want_sub_image;
-    redraw();
+    redraw_required = true;
     break;
   }
 }
