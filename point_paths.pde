@@ -44,7 +44,10 @@ boolean fill_on_idle = false;
 // main initialization:
 void setup()
 {
-  switch(1) // choice of a few screen resolutions.
+    //size(1200,800);
+    size(900,600);
+  /*
+  switch(2) // choice of a few screen resolutions.
   {
     // n.b.: if/when adding new resolutions, note that significant aspect-ratio
     // changes can do strange things. to what gets shown.
@@ -58,6 +61,7 @@ void setup()
     size(900, 700);
     break;
   }
+  */
 
   // where to place the zoom window.  TODO: make this more sane for various resolutions
   zoom_x = 80;
