@@ -400,6 +400,7 @@ void keyPressed()
       idle_y = mandel_idle_y;
     }
     img.updatePixels();
+    redraw_required = true;
     break;
   case 'L': // Lock looping
     noLoop();
