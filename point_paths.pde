@@ -18,14 +18,24 @@
  */
 
 // center of the screen should be at this point:
-float center_re = -0.7; // real component
-float center_im = 0; // imaginary component
+float mandel_center_re = -0.7; // real component
+float mandel_center_im = 0; // imaginary component
+
+boolean julia_mode = false;
+float julia_center_re = 0.0;
+float julia_center_im = 0.0;
+float[] julia_point = {0, 0};
+
+float center_re, center_im;
 
 // "zoom" factor.  Note: not currently change-able:
-float zoom_width = 3.0; // n.b.: not related to sub-window (below)
+float mandel_zoom_width = 3.0; // n.b.: not related to sub-window (below)
+float julia_zoom_width = 6.0;
+float zoom_width = mandel_zoom_width;
 
-// image storage for the computed fractal (and sub-window):
-PImage img, zimg;
+// image storage for the computed fractal, julia set,
+// pointer to current, and sub-window (respectively):
+PImage mandel_img, julia_img, img, zimg;
 
 // state for avoiding re-drawing:
 int last_x = 0, last_y = 0;
@@ -38,14 +48,19 @@ int zoom_x, zoom_y; // where to place it (set in setup())
 boolean want_sub_image = true; // should we draw it?
 
 // counters for idle loop, when enabled:
-int idle_x = 0, idle_y = 0;
+int mandel_idle_x = 0, mandel_idle_y = 0;
+int julia_idle_x = 0, julia_idle_y = 0;
+int idle_x = mandel_idle_x, idle_y = mandel_idle_y;
+
 boolean fill_on_idle = false;
 
 // main initialization:
 void setup()
 {
-    //size(1200,800);
-    size(900,600);
+  // sadly, setup can no longer run the likes of switch statements, so
+  // have to do sizes more manually:
+  //size(1200,800);
+  size(900, 700);
   /*
   switch(2) // choice of a few screen resolutions.
   {
@@ -67,6 +82,9 @@ void setup()
   zoom_x = 80;
   zoom_y = height - 70 - zoom_size * zoom_scale;
 
+  center_re = mandel_center_re;
+  center_im = mandel_center_im;
+
   background(0); // black
   //frameRate(5);
   draw_grids();
@@ -76,8 +94,12 @@ void setup()
 // create (and/or re-set) the backing-store images
 void init_images()
 {
-  img = createImage(width, height, RGB);
+  // general background image (so we can draw over it without having to
+  // re-draw the underlying fractal):
+  mandel_img = createImage(width, height, RGB);
+  img = mandel_img;
   img.loadPixels();
+  // sub-image for the zoom region:
   zimg = createImage(int(zoom_size * zoom_scale), int(zoom_size * zoom_scale), RGB);
 }
 
@@ -87,8 +109,13 @@ void draw_grid(float r, float i, boolean is_main_gridline)
   int[] pos = get_position(r, i);
 
   fill(255); // for the text
+
   text("r = " + r, pos[0] + 5, (is_main_gridline ? 20 : 40));
   text("i = " + i, (is_main_gridline ? 10 : width - 100), pos[1] - 5);
+
+  if (julia_mode && !is_main_gridline) {
+    text("J = " + julia_point[0] + "+" + julia_point[1] + "i", 30, 60);
+  }
   line(pos[0], 0, pos[0], height);
   line(0, pos[1], width, pos[1]);
 }
@@ -149,12 +176,14 @@ int[] get_position(float re, float im)
 float[] next_point(float[] z, float[] c)
 {
   float[] new_z = new float[2];
+  if (julia_mode)
+    c = julia_point;
 
   // (a+bi)^2 == a^2 + 2abi + (bi)^2 == a^2 + 2abi - b^2
   new_z[1] = 2.0*z[0]*z[1] + c[1]; // z'[i] = 2*z[r]*z[i] (i.e. 2ab) + c[i]
   new_z[0] = z[0]*z[0] - z[1]*z[1] + c[0]; // z[r]*z[r] - z[i]*z[i] (i.e. a^2 - b^2) + c[r]
 
-    return new_z;
+  return new_z;
 }
 
 // main workhorse, a function to plot next positions for a given point:
@@ -164,6 +193,10 @@ void plot_next(float[] point)
   int[] start_position = position1; // save that
   float[] new_point = next_point(point, point); // one iteration, basically
   int[] position2 = get_position(new_point); // x,y for the new point
+  int x = start_position[0], y = start_position[1]; // easier access
+  int offset = y * width + x;
+
+  img.loadPixels();
 
   int iterations = 0;
   color c;
@@ -171,42 +204,52 @@ void plot_next(float[] point)
   // main calculation loop (skipped recursion for iteration counting.  Could be re-worked.)
   do {
     iterations++; // we already did one
-    stroke(0,iterations,255-iterations); // color for stroke... blue, going green as we go deeper
+    stroke(0, iterations, 255-iterations); // color for stroke... blue, going green as we go deeper
     line(position1[0], position1[1], position2[0], position2[1]); // this segment
     position1 = position2; // set up for next segment
     new_point = next_point(new_point, point); // compute the new point
     position2 = get_position(new_point); // x,y for new point
   }
   // as long as we haven't exceeded 255, or escaped circle of radius 2 (cheating and not squaring)
-  while(iterations < 255 && (abs(new_point[0]) < 4 && abs(new_point[1]) < 4));
+  while (iterations < 255 && (abs(new_point[0]) < 4 && abs(new_point[1]) < 4));
 
   // heuristics for choosing a color for the point to be drawn, once we have iteration count:
-  if(iterations <= 10)
+  if (iterations <= 10)
     // increasingly (as iterations go up) bright flavor of red:
     c = color(5 + 25 * iterations, 0, 0);
-  else if(iterations <= 15)
+  else if (iterations <= 15)
   {
     // or flavor of magenta:
     int v = 100 + 10 * iterations;
     c = color(v, 0, v);
-  }
-  else if(iterations < 100)
+  } else if (iterations < 100)
     c = color(0, 30 + 2 * iterations, 0); // greens
-  else if(iterations < 255)
+  else if (iterations < 255)
     c = color(0, 0, iterations); // blues
   else
     c = color(255); // white
 
   // put this point on the map:
-  img.loadPixels();
-  img.pixels[start_position[1] * width + start_position[0]] = c;
+  img.pixels[offset] = c;
   img.updatePixels();
+
+  int alt_x = start_position[0];
+  int alt_y = height - start_position[1] - 1;
+
+  if (julia_mode)
+  {
+    alt_x = width - alt_x;
+  }
+
+  img.pixels[alt_y * width + alt_x - 1] = c;
+  img.updatePixels();
+  redraw_required = true;
 }
 
 // draw the zoom window:
 void draw_sub_image()
 {
-  if(!want_sub_image) return;
+  if (!want_sub_image) return;
 
   int left = zoom_x - 1, top = zoom_y - 1, wdth = zoom_size * zoom_scale;
 
@@ -227,20 +270,22 @@ void draw_sub_image()
 // main draw loop, as called by the Processing framework:
 void draw()
 {
-  // if we haven't moved, do idle processing only
-  if(last_x == mouseX && last_y == mouseY)
+  // do idle processing, only if we haven't moved
+  if (last_x == mouseX && last_y == mouseY)
   {
-    if(fill_on_idle && idle_y < height)
+    if (fill_on_idle && idle_y < height / 2)
     {
-      // loop stop number is somewhat arbitrary, and found by experimentation - we want to
-      // draw a big enough chunk that this draws quickly when we're truly idle, while also choosing
-      // a small enough chunk that the program will still be responsive to mouse movement even if drawing
-      // a dense area of the set.
-      for(int i = 0; i < 440; ++i)
+      // loop stop number (how many points to draw per idle loop)
+      // is somewhat arbitrary, and found by experimentation - we want to
+      // draw a big enough chunk that this draws quickly when we're truly idle,
+      // while also choosing a small enough chunk that the program will still
+      // be responsive to mouse movement even if drawing a dense area of the set.
+      int iters_per_draw_loop = 440;
+      for (int i = 0; i < iters_per_draw_loop; ++i)
       {
         plot_next(point_at(idle_x, idle_y));
         ++idle_x;
-        if(idle_x > width)
+        if (idle_x > width)
         {
           idle_x = 0;
           idle_y++;
@@ -250,8 +295,9 @@ void draw()
         }
       }
     }
-    // well, unless redraw is required (e.g. for reset, zoom toggle), then re-draw anyway:
-    else if(!redraw_required)
+    // well, unless redraw is required (e.g. for reset, zoom toggle),
+    // then re-draw anyway:
+    else if (!redraw_required)
       return; // don't waste CPU for non-movement
   }
 
@@ -289,14 +335,14 @@ void fill_area()
   int i, j, x, y;
   float[] pos;
 
-  for(i = 0; i < zoom_size; ++i)
+  for (i = 0; i < zoom_size; ++i)
   {
-    for(j = 0; j < zoom_size; ++j)
+    for (j = 0; j < zoom_size; ++j)
     {
       x = mouseX + i - zoom_size/2;
       y = mouseY + j - zoom_size/2;
 
-      if(x < 0 || x >= width || y < 0 || y >= height)
+      if (x < 0 || x >= width || y < 0 || y >= height)
         continue;
 
       plot_next(point_at(x, y));
@@ -318,6 +364,43 @@ void keyPressed()
   case 'i': // idle-mode drawing
     fill_on_idle = !fill_on_idle;
     break;
+  case 'j': // julia set mode
+    julia_mode = !julia_mode;
+    boolean reset = true;
+
+    if (julia_mode) {
+      // fresh image each time:
+      float[] current_point = point_at(mouseX, mouseY);
+      center_re = julia_center_re;
+      center_im = julia_center_im;
+
+      // if the cursor hasn't moved, don't reset the image or idle positions:
+      if (current_point[0] == julia_point[0] && current_point[1] == julia_point[1]) {
+        reset = false;
+      }
+      julia_point = current_point;
+      if (reset) {
+        julia_img = createImage(width, height, RGB);
+        julia_idle_x = 0;
+        julia_idle_y = 0;
+      }
+      img = julia_img;
+
+      mandel_idle_x = idle_x;
+      mandel_idle_y = idle_y;
+      idle_x = julia_idle_x;
+      idle_y = julia_idle_y;
+    } else {
+      img = mandel_img;
+      center_re = mandel_center_re;
+      center_im = mandel_center_im;
+      julia_idle_x = idle_x;
+      julia_idle_y = idle_y;
+      idle_x = mandel_idle_x;
+      idle_y = mandel_idle_y;
+    }
+    img.updatePixels();
+    break;
   case 'L': // Lock looping
     noLoop();
     break;
@@ -337,4 +420,3 @@ void keyPressed()
     break;
   }
 }
-
